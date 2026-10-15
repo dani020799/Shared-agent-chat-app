@@ -28,8 +28,8 @@ for(const mode of ['claude-channel','codex-queue','claude-bridge']) {
     const received=new Promise<any>(resolveValue=>{notify=resolveValue;});
     let watcher:ReturnType<typeof watch>|undefined;
     if(mode==='claude-channel')client.setNotificationHandler(z.object({method:z.literal('notifications/claude/channel'),params:z.any()}),event=>{notify(event.params);});
-    else if(bridge){let buffer='';outputStream.on('data',chunk=>{buffer+=String(chunk);if(buffer.includes('\n'))notify(JSON.parse(buffer.split('\n')[0]));});}
-    else watcher=watch(dir,(_event,name)=>{if(name==='capture.json'){try{notify(JSON.parse(readFileSync(capture,'utf8')));}catch{}}});
+    else if(bridge){let buffer='';outputStream.on('data',chunk=>{buffer+=String(chunk);let at;while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);notify(JSON.parse(line));}});}
+    else {let previous='';watcher=watch(dir,(_event,name)=>{if(name==='capture.json'){try{const text=readFileSync(capture,'utf8');const value=JSON.parse(text);if(text!==previous){previous=text;notify(value);}}catch{}}});}
     try {
       await client.connect(transport);
       const result:any=await client.callTool({name:'join_conversation',arguments:{conversation:'Probe',name:'Probe agent',role:'',host_session_id:thread}});
@@ -52,6 +52,16 @@ for(const mode of ['claude-channel','codex-queue','claude-bridge']) {
       assert.equal(store.nextInvocation(participant.id),undefined);
       // Dispatch is not delivery acknowledgment: unread messages remain unread.
       assert.equal(store.unread(participant.id,1).messages.length,2);
+      // Deletion must wake the host even with an outstanding normal invocation.
+      const deletionReceived=new Promise<any>(resolveValue=>{notify=resolveValue;});
+      await fetch(base+'/admin/delete-room',{method:'POST',headers:{Authorization:'Bearer admin','Content-Type':'application/json'},body:JSON.stringify({room_id:room.id})});
+      const deletion=await Promise.race([deletionReceived,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('No host deletion notice')),4000).unref())]);
+      const deletionPrompt=mode==='claude-channel'?deletion.content:bridge?deletion.message.content:deletion[4];
+      assert.match(deletionPrompt,/was deleted by the user/);
+      assert.equal(store.participant(participant.id).room_id,null);
+      store.createRoom('Next room');
+      const rejoin:any=await client.callTool({name:'join_conversation',arguments:{conversation:'Next room',participant_id:participant.id,name:'Probe agent',role:''}});
+      assert.ok(!rejoin.isError);assert.equal(JSON.parse(rejoin.content[0].text).id,participant.id);
     }finally{bridge?.close();watcher?.close();await client.close();hub.closeStreams();await new Promise<void>(r=>hub.server.close(()=>r()));store.close();rmSync(dir,{recursive:true});}
   });
 }

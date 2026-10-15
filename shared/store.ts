@@ -52,6 +52,12 @@ export class Store {
         room_id TEXT NOT NULL REFERENCES rooms(id), epoch INTEGER NOT NULL,
         from_seq INTEGER NOT NULL, to_seq INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY, participant_id TEXT NOT NULL REFERENCES participants(id),
+        kind TEXT NOT NULL, room_id TEXT NOT NULL, room_name TEXT NOT NULL, epoch INTEGER NOT NULL,
+        acknowledged INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS notifications_pending ON notifications(participant_id,acknowledged);
     `);
   }
   all(sql: string, ...args: any[]): Row[] { return this.db.prepare(sql).all(...args) as Row[]; }
@@ -75,6 +81,28 @@ export class Store {
     const id = randomUUID(), token = randomBytes(32).toString('hex');
     this.run('INSERT INTO participants(id,name,role,token_hash,adapter) VALUES(?,?,?,?,?)', id, requireText(name, 'Name'), role, digest(token), adapter);
     return { participant: this.participant(id), token };
+  }
+  deleteRoom(id:string) {
+    return this.transaction(()=>{
+      const room=this.room(id),members=this.members(id);
+      for(const member of members){
+        this.run('UPDATE participants SET room_id=NULL,epoch=epoch+1 WHERE id=?',member.id);
+        this.run('INSERT INTO notifications(id,participant_id,kind,room_id,room_name,epoch) VALUES(?,?,?,?,?,?)',randomUUID(),member.id,'conversation_deleted',id,room.name,member.epoch+1);
+      }
+      this.run('DELETE FROM deliveries WHERE room_id=?',id);
+      this.run('DELETE FROM cursors WHERE room_id=?',id);
+      this.run('DELETE FROM invocations WHERE message_id IN (SELECT id FROM messages WHERE room_id=?)',id);
+      this.run('DELETE FROM messages WHERE room_id=?',id);
+      this.run('DELETE FROM rooms WHERE id=?',id);
+      return {deleted:id,detached_agents:members.length};
+    });
+  }
+  notifications(id:string) {return this.all('SELECT * FROM notifications WHERE participant_id=? AND acknowledged=0 ORDER BY created,id',id);}
+  acknowledgeNotification(id:string,notificationId:string) {
+    const event=this.one('SELECT id FROM notifications WHERE id=? AND participant_id=?',notificationId,id);
+    if(!event)throw new HubError('Notification not found',404);
+    this.run('UPDATE notifications SET acknowledged=1 WHERE id=?',notificationId);
+    return {acknowledged:notificationId};
   }
   participant(id: string): Row {
     const p = this.one('SELECT id,name,role,room_id,epoch,adapter FROM participants WHERE id=?', id);
@@ -147,6 +175,10 @@ export class Store {
       messages.push(row); bytes += size;
     }
     const next = messages.at(-1)?.seq ?? after;
+    const mentions = this.all(`SELECT i.message_id,p.id,p.name FROM invocations i
+      JOIN participants p ON p.id=i.participant_id JOIN messages m ON m.id=i.message_id
+      WHERE m.room_id=? AND m.seq>? AND m.seq<=? ORDER BY p.name,p.id`,roomId,after,next);
+    for (const message of messages) message.mentions=mentions.filter(p=>p.message_id===message.id).map(({id,name})=>({id,name}));
     return { messages, next, through: end, has_more: next < end };
   }
   unread(id: string, epoch: number, through?: number) {

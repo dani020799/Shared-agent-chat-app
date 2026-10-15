@@ -14,6 +14,7 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
     for (const res of observers) emit(res,'change',{});
     for (const [id,res] of listeners) {
       const p = store.participant(id); emit(res,'assignment',p);
+      for(const event of store.notifications(id))emit(res,'notification',event);
       const job = store.nextInvocation(id);
       if (job) emit(res,'wake',{invocation_id:job.id,epoch:job.epoch,through:job.seq,room_id:job.room_id});
     }
@@ -34,6 +35,7 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
         if (path === '/admin/events') { stream(); observers.add(res); req.on('close',()=>observers.delete(res)); return; }
         if (path === '/admin/rooms' && req.method === 'GET') { json(res,store.rooms()); return; }
         if (path === '/admin/rooms' && req.method === 'POST') { const b = await body(req); json(res,store.createRoom(b.name),201); notify(); return; }
+        if(path==='/admin/delete-room' && req.method==='POST'){const b=await body(req);json(res,store.deleteRoom(b.room_id));notify();return;}
         if (path === '/admin/room' && req.method === 'GET') {
           const id = url.searchParams.get('id')!; const room = store.room(id);
           json(res,{room,members:store.members(id).map(p=>({...p,online:listeners.has(p.id),activity:store.one("SELECT id FROM invocations WHERE participant_id=? AND status='notified'",p.id) ? 'awaiting agent completion' : 'unknown'})),...store.history(id,Number(url.searchParams.get('after') ?? 0)),invocations:store.jobs(id)}); return;
@@ -53,12 +55,13 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
         stream(); listeners.set(p.id,res); notify();
         req.on('close',()=>{ if(listeners.get(p.id)===res) { listeners.delete(p.id); notify(); } }); return;
       }
-      if (path === '/status' && req.method === 'GET') { json(res,p); return; }
+      if (path === '/status' && req.method === 'GET') { json(res,{...p,notifications:store.notifications(p.id)}); return; }
       if (req.method !== 'POST') throw new HubError('Not found',404);
       const b = await body(req);
       if (!Number.isSafeInteger(b.epoch) || b.epoch < 0) throw new HubError('A valid assignment epoch is required');
       let result: unknown;
       switch(path) {
+        case '/notification-ack': result=store.acknowledgeNotification(p.id,b.notification_id);break;
         case '/join': result = store.assign(p.id,b.conversation,false,b.epoch); break;
         case '/adapter': {
           if(p.epoch!==b.epoch)throw new HubError('Assignment changed',409);

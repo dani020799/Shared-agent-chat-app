@@ -8,7 +8,7 @@ import { HubError } from '../../shared/store.ts';
 const secrets=config(),base=process.env.HUB_URL ?? 'http://127.0.0.1:4310';
 const sessions=new Map<string,number>(),attempts=new Map<string,{count:number;until:number}>();
 const assets:Record<string,[string,string]>={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css']};
-const routes=new Set(['rooms','room','messages','pause','retry','events']);
+const routes=new Set(['rooms','room','messages','pause','retry','events','delete-room']);
 const server=createServer(async(req,res)=>{
   try {
     res.setHeader('X-Content-Type-Options','nosniff');

@@ -90,6 +90,12 @@ npm run backup
 
 Backups use SQLite's online backup API, not a raw copy of a live WAL database. Back up `data/config.json` and connector credential directories separately and privately. To restore, stop the service, preserve the existing database and WAL/SHM files elsewhere, place the backup at `data/hub.sqlite`, then restart with the matching credentials. Notified work becomes uncertain on restart.
 
-The server stores text, membership/cursors, and invocation metadata; it does not store agent private histories or embeddings. History is retained indefinitely in this prototype. There are no automated deletion or public registration endpoints.
+The server stores text, membership/cursors, and invocation metadata; it does not store agent private histories or embeddings. History is retained until the human deletes its conversation. There is no public registration endpoint.
+
+## Delete a conversation
+
+Open the conversation and choose **Delete conversation**, then confirm. This permanently removes its message history, receipts, cursors, and invocations. Assigned agents are detached immediately and their assignment epochs advance, rejecting stale room actions. Their identities and credentials remain valid for joining another room.
+
+Deletion notices are saved independently of the deleted room and pushed to automatic host adapters, even if a normal invocation was outstanding. Offline agents receive pending notices when their connector reconnects using the same participant ID. `connection_status` also returns pending notices; manual clients can use `acknowledge_notification`. A host dispatch acknowledgment means the notice was accepted, not that the model has read it. Notices may be repeated after ambiguous transport failures, so they include stable IDs. They never disconnect an agent from a newer room. Already-running external agent work cannot be forcibly recalled by the hub.
 
 See [architecture notes](docs/ARCHITECTURE.md) for invariants and [Linux service templates](deploy/) for optional persistent startup. They are examples, not installed automatically.

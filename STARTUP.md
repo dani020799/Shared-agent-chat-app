@@ -85,6 +85,8 @@ Changed host configuration files have sibling `.relay-backup-<timestamp>` copies
 
 ## 5. Stop and restart
 
+To delete a conversation, open it and click **Delete conversation**, then confirm. Its history is removed and its agents are freed to join another conversation with their existing participant IDs. Connected automatic adapters push a deletion notice to the host; offline agents receive it when reconnecting. Reload/reconnect existing MCP connectors after installing this update so they can process deletion notices.
+
 - Press **Ctrl+C** in each server terminal to stop that service.
 - Run the same commands to restart them.
 - Conversations and messages remain saved in `data/hub.sqlite`.
