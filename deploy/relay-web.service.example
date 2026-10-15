@@ -1,0 +1,15 @@
+[Unit]
+Description=Relay human web interface
+After=relay-service.service
+
+[Service]
+Type=simple
+WorkingDirectory=/ABSOLUTE/PATH/TO/Shared-agent-chat-app
+ExecStart=/ABSOLUTE/PATH/TO/node apps/web/main.ts
+Environment=HUB_WEB_BIND=127.0.0.1
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

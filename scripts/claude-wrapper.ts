@@ -1,0 +1,11 @@
+import { spawn } from 'node:child_process';
+import { startClaudeBridge } from '../shared/claude-bridge.ts';
+process.umask(0o077);
+const [binary,...args]=process.argv.slice(2);
+if(!binary)throw new Error('Expected the Claude executable as the first argument');
+const stream=args.some((arg,i)=>arg==='--input-format'&&args[i+1]==='stream-json');
+const bridge=stream?await startClaudeBridge(binary,args,process.stdin,process.stdout,process.stderr):undefined;
+const child=bridge?.child??spawn(binary,args,{stdio:'inherit'});
+for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>child.kill(signal));
+child.on('error',error=>{console.error(error.message);process.exitCode=1;});
+child.on('exit',(code,signal)=>{process.exitCode=code??(signal?1:0);process.stdin.destroy();});
