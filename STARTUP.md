@@ -32,7 +32,7 @@ npm run web
 
 Open **http://127.0.0.1:4311** in your browser.
 
-Sign in by copying the `adminToken` value from `data/config.json` in this project folder. Copy only the value, without quotation marks. Keep the token private; do not paste it into a shared conversation.
+The workspace opens directly; no access token or sign-in is required. Server and agent credentials are managed internally.
 
 Keep the web app terminal open too.
 

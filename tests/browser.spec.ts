@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { call } from '../shared/client.ts';
 
-test('browser: authentication, conversation creation, mentions, pause, mobile layout and safe message rendering',async()=>{
+test('browser: direct access, conversation creation, mentions, pause, mobile layout and safe message rendering',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'relay-web-'));writeFileSync(join(dir,'config.json'),JSON.stringify({adminToken:'ui-test-admin',agentToken:'ui-test-enroll'}));
   const store=new Store(':memory:'),hub=createHub(store,{adminToken:'ui-test-admin',agentToken:'ui-test-enroll'});
   hub.server.listen(0,'127.0.0.1');await once(hub.server,'listening');
@@ -22,7 +22,9 @@ test('browser: authentication, conversation creation, mentions, pause, mobile la
     browser=await chromium.launch({executablePath:process.env.HUB_TEST_CHROMIUM ?? '/snap/bin/chromium',headless:true});
     const context=await browser.newContext({viewport:{width:1440,height:1000}});const page=await context.newPage();const errors:string[]=[];
     page.on('pageerror',error=>errors.push(error.message));
-    await page.goto(url);await page.locator('#token').fill('ui-test-admin');await page.locator('#login-form button').click();
+    await page.goto(url);assert.equal(await page.locator('#token, #login, #logout').count(),0);
+    assert.equal((await fetch(url+'/api/rooms')).status,200);
+    await assert.rejects(call(base,'','/admin/rooms'),/Authentication/);
     await page.locator('#first-room').click();await page.locator('#room-name').fill('Website redesign');await page.locator('#create-form button[type=submit], #create-form button:not([type])').click();
     await page.getByRole('heading',{name:'Website redesign',exact:true}).waitFor();
     const room=store.rooms()[0];
@@ -61,6 +63,6 @@ test('browser: authentication, conversation creation, mentions, pause, mobile la
     assert.equal(store.notifications(backend.participant.id)[0].kind,'conversation_deleted');
     await page.locator('#first-room').click();await page.locator('#room-name').fill('Next conversation');await page.locator('#create-form button:not([type])').click();
     await page.getByRole('heading',{name:'Next conversation',exact:true}).waitFor();
-    await page.locator('#logout').click();await page.locator('#login').waitFor();
+
   }finally{await browser?.close();child.kill('SIGTERM');if(child.exitCode===null)await once(child,'exit');hub.closeStreams();await new Promise<void>(r=>hub.server.close(()=>r()));store.close();rmSync(dir,{recursive:true});}
 });

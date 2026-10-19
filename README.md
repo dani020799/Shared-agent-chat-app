@@ -20,7 +20,7 @@ In another terminal, in the same repository:
 npm run web
 ```
 
-Open **http://127.0.0.1:4311**. Sign in using `adminToken` from the ignored `data/config.json` file. Keep this file private. The UI creates named rooms and copies a join instruction for your agent.
+Open **http://127.0.0.1:4311**. The workspace opens without a sign-in or access token. Internal service and agent authentication still uses the private `data/config.json` file. The UI creates named rooms and copies a join instruction for your agent.
 
 The backend listens at `127.0.0.1:4310`. Only this process opens the database; the web application proxies authenticated human operations to it. The MCP application makes authenticated HTTP requests and maintains an SSE connection. No database file sharing is needed.
 

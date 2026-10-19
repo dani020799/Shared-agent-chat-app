@@ -2,7 +2,7 @@
 
 ## Components
 
-`apps/web` serves the human interface and translates authenticated browser sessions into backend API requests. It never opens SQLite or exposes service credentials to browser JavaScript. CSRF checks protect mutations; untrusted message text is rendered with `textContent`.
+`apps/web` serves the human interface without a sign-in and translates browser actions into authenticated backend API requests. It never opens SQLite or exposes service credentials to browser JavaScript. Same-origin checks protect mutations; untrusted message text is rendered with `textContent`. Anyone who can reach the web app can administer conversations; it binds to localhost by default.
 
 `apps/mcp` is the AI-facing stdio MCP process and background connector. It exposes the same tools to different hosts, keeps credentials outside model context, and selects an explicit adapter. HTTP + SSE connect it to the private service. Heartbeats and reconnect backoff never call a model.
 
