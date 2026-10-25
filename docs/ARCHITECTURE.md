@@ -14,6 +14,7 @@
 * A room switch and all old-epoch cancellations happen in one database transaction.
 * Message inserts, monotonic room sequence allocation and recipient invocation records share one transaction.
 * Unique sender request keys deduplicate message retries.
+* Reply edges reference existing messages in the same room. The service commits edges, message, and deduplicated recipient invocations atomically. Parent authors are invoked only while assigned to that room; reply links never bypass exclusive assignment. Edges cascade on conversation deletion.
 * The indexed `(room_id,seq)` range implements the logical buffer without per-member text duplication.
 * Receipt acknowledgments advance a cursor only to positions actually returned to that participant in that epoch.
 * History reads do not change the unread cursor.

@@ -33,5 +33,5 @@ writeFileSync(launcher,`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(
 if(!previous){const at=source.indexOf('{');if(at<0)throw new Error('Missing settings object');const property=`\n  "claudeCode.claudeProcessWrapper": ${JSON.stringify(launcher)}${Object.keys(parsed.config).length?',':''}`;const updated=source.slice(0,at+1)+property+source.slice(at+1);if(ts.parseConfigFileTextToJson(settingsPath,updated).error)throw new Error('Settings edit failed validation');save(settingsPath,updated);}
 save(codexPath,toml);
 mcp(join(home,'.claude.json'),'auto');
-mcp(join(home,'.gemini/config/mcp_config.json'),'unsupported');
-console.log('Restart host chats to load the automatic adapters. Antigravity joins now report the unsupported wake capability explicitly.');
+mcp(join(home,'.gemini/config/mcp_config.json'),'agy-native');
+console.log('Restart host chats to load the automatic adapters. For native Antigravity CLI, register each intended session with scripts/register-agy.ts before joining. The IDE remains unverified.');

@@ -40,6 +40,12 @@ export class Store {
         UNIQUE(room_id,seq), UNIQUE(sender_id,request_key)
       );
       CREATE INDEX IF NOT EXISTS messages_room_seq ON messages(room_id,seq);
+      CREATE TABLE IF NOT EXISTS message_replies (
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        parent_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        PRIMARY KEY(message_id,parent_id)
+      );
+      CREATE INDEX IF NOT EXISTS message_replies_parent ON message_replies(parent_id);
       CREATE TABLE IF NOT EXISTS invocations (
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
         participant_id TEXT NOT NULL REFERENCES participants(id), epoch INTEGER NOT NULL,
@@ -76,7 +82,7 @@ export class Store {
     const id = randomUUID(); this.run('INSERT INTO rooms(id,name) VALUES(?,?)', id, clean); return this.room(id);
   }
   register(name: unknown, role: unknown, adapter = 'manual') {
-    if (!['manual','claude-channel','claude-bridge','codex-queue','wait'].includes(adapter)) throw new HubError('Unknown adapter');
+    if (!['manual','claude-channel','claude-bridge','codex-queue','agy-native','grok-monitor','wait'].includes(adapter)) throw new HubError('Unknown adapter');
     if (typeof role !== 'string' || role.length > 240) throw new HubError('Role must be plain text, at most 240 characters');
     const id = randomUUID(), token = randomBytes(32).toString('hex');
     this.run('INSERT INTO participants(id,name,role,token_hash,adapter) VALUES(?,?,?,?,?)', id, requireText(name, 'Name'), role, digest(token), adapter);
@@ -134,9 +140,11 @@ export class Store {
     });
   }
   members(roomId: string) { return this.all('SELECT id,name,role,epoch,adapter FROM participants WHERE room_id=? ORDER BY name,id', roomId); }
-  send(roomId: string, sender: { id: string; name: string }, body: unknown, recipients: unknown, all: boolean, requestKey: unknown, epoch?: number) {
+  send(roomId: string, sender: { id: string; name: string }, body: unknown, recipients: unknown, all: boolean, requestKey: unknown, epoch?: number, replyTo:unknown=[]):Row & {reply_to:Row[]} {
     const text = requireText(body, 'Message', 16_000), key = requireText(requestKey, 'Request key', 100);
     if (!Array.isArray(recipients) || recipients.some(id => typeof id !== 'string')) throw new HubError('Recipients must be participant IDs');
+    if(!Array.isArray(replyTo)||replyTo.length>20||replyTo.some(id=>typeof id!=='string'||!id))throw new HubError('reply_to must contain at most 20 message IDs');
+    const parentIds=[...new Set<string>(replyTo)].sort();
     const routing = JSON.stringify({all,recipients:all?[]:[...new Set(recipients)].sort()});
     return this.transaction(() => {
       this.room(roomId);
@@ -146,39 +154,55 @@ export class Store {
       }
       const existing = this.one('SELECT * FROM messages WHERE sender_id=? AND request_key=?', sender.id, key);
       if (existing) {
-        if (existing.room_id !== roomId || existing.body !== text || existing.routing !== routing) throw new HubError('Request key reused for another message', 409);
-        return existing;
+        const previous=this.all('SELECT parent_id FROM message_replies WHERE message_id=? ORDER BY parent_id',existing.id).map(r=>r.parent_id);
+        if (existing.room_id !== roomId || existing.body !== text || existing.routing !== routing || JSON.stringify(previous)!==JSON.stringify(parentIds)) throw new HubError('Request key reused for another message', 409);
+        return {...existing,reply_to:this.replyContext(existing.id)};
       }
+      const parents=parentIds.map(id=>{
+        const parent=this.one('SELECT id,sender_id FROM messages WHERE id=? AND room_id=?',id,roomId);
+        if(!parent)throw new HubError('Reply targets must be existing messages in this conversation',400);
+        return parent;
+      });
       const members = this.members(roomId);
       const ids = [...new Set<string>(all ? members.map(p => p.id).filter(id => id !== sender.id) : recipients)];
       if (ids.some(id => !members.some(p => p.id === id))) throw new HubError('A recipient is no longer assigned to this room', 409);
       if (ids.includes(sender.id)) throw new HubError('Self-invocation is not supported');
+      // Replies address authors still assigned here; never wake an agent in another room.
+      for(const parent of parents)if(parent.sender_id!==sender.id&&members.some(p=>p.id===parent.sender_id)&&!ids.includes(parent.sender_id))ids.push(parent.sender_id);
       this.run('UPDATE rooms SET head=head+1 WHERE id=?', roomId);
       const seq = this.room(roomId).head, id = randomUUID();
       this.run('INSERT INTO messages(id,room_id,seq,sender_id,sender_name,body,request_key,routing) VALUES(?,?,?,?,?,?,?,?)', id, roomId, seq, sender.id, sender.name, text, key,routing);
+      for(const parentId of parentIds)this.run('INSERT INTO message_replies(message_id,parent_id) VALUES(?,?)',id,parentId);
       for (const recipient of ids) {
         const p = members.find(p => p.id === recipient)!;
         this.run('INSERT INTO invocations(id,message_id,participant_id,epoch) VALUES(?,?,?,?)', randomUUID(), id, p.id, p.epoch);
       }
-      return this.one('SELECT * FROM messages WHERE id=?', id)!;
+      return {...this.one('SELECT * FROM messages WHERE id=?', id)!,reply_to:this.replyContext(id)};
     });
   }
+  replyContext(id:string) {return this.all(`SELECT p.id,p.seq,p.sender_id,p.sender_name,substr(p.body,1,240) AS excerpt
+    FROM message_replies r JOIN messages p ON p.id=r.parent_id WHERE r.message_id=? ORDER BY p.seq`,id);}
   history(roomId: string, after = 0, through?: number, limit = 50) {
     const room = this.room(roomId);
     if (!Number.isSafeInteger(after) || after < 0 || (through !== undefined && (!Number.isSafeInteger(through) || through < 0))) throw new HubError('Invalid history position');
     const end = Math.min(through ?? room.head, room.head);
     const rows = this.all('SELECT * FROM messages WHERE room_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?', roomId, after, end, Math.max(1,Math.min(100,limit)));
-    const messages: Row[] = []; let bytes = 0;
-    for (const row of rows) {
-      const size = Buffer.byteLength(row.body, 'utf8');
-      if (messages.length && bytes + size > 32_000) break;
-      messages.push(row); bytes += size;
-    }
-    const next = messages.at(-1)?.seq ?? after;
+    const fetchedThrough=rows.at(-1)?.seq??after;
     const mentions = this.all(`SELECT i.message_id,p.id,p.name FROM invocations i
       JOIN participants p ON p.id=i.participant_id JOIN messages m ON m.id=i.message_id
-      WHERE m.room_id=? AND m.seq>? AND m.seq<=? ORDER BY p.name,p.id`,roomId,after,next);
-    for (const message of messages) message.mentions=mentions.filter(p=>p.message_id===message.id).map(({id,name})=>({id,name}));
+      WHERE m.room_id=? AND m.seq>? AND m.seq<=? ORDER BY p.name,p.id`,roomId,after,fetchedThrough);
+    for (const message of rows) message.mentions=mentions.filter(p=>p.message_id===message.id).map(({id,name})=>({id,name}));
+    const replies=this.all(`SELECT r.message_id,p.id,p.seq,p.sender_id,p.sender_name,substr(p.body,1,240) AS excerpt
+      FROM message_replies r JOIN messages p ON p.id=r.parent_id JOIN messages m ON m.id=r.message_id
+      WHERE m.room_id=? AND m.seq>? AND m.seq<=? ORDER BY p.seq`,roomId,after,fetchedThrough);
+    for(const message of rows)message.reply_to=replies.filter(r=>r.message_id===message.id).map(({message_id,...parent})=>parent);
+    const messages:Row[]=[];let bytes=0;
+    for(const row of rows){
+      const size=Buffer.byteLength(JSON.stringify(row),'utf8');
+      if(messages.length&&bytes+size>32_000)break;
+      messages.push(row);bytes+=size;
+    }
+    const next=messages.at(-1)?.seq??after;
     return { messages, next, through: end, has_more: next < end };
   }
   unread(id: string, epoch: number, through?: number) {

@@ -50,6 +50,11 @@ test('real MCP SDK handshake, separate session identities, explicit mentions, sw
     const page=await invoke('read_unread',{participant_id:b.id,epoch:b.epoch,through:wake.invocation.seq});assert.equal(page.messages.length,1);
     await invoke('acknowledge',{participant_id:b.id,epoch:b.epoch,receipt:page.receipt});
     await invoke('complete_invocation',{participant_id:b.id,epoch:b.epoch,invocation_id:wake.invocation.id});
+    const answer=await invoke('send_message',{participant_id:b.id,epoch:b.epoch,text:'Answer to A',reply_to:[page.messages[0].id],request_key:randomUUID()});
+    assert.equal(answer.reply_to[0].sender_id,a.id);
+    const replyWake=await invoke('wait_for_message',{participant_id:a.id,timeout_seconds:2});assert.equal(replyWake.invocation.seq,2);
+    const replyPage=await invoke('read_unread',{participant_id:a.id,epoch:a.epoch,through:replyWake.invocation.seq});
+    assert.equal(replyPage.messages[1].reply_to[0].id,page.messages[0].id);
     await assert.rejects(()=>invoke('join_conversation',{participant_id:b.id,conversation:'Y',name:'B',role:''}),/switch_conversation/);
     const switched=await invoke('switch_conversation',{participant_id:b.id,epoch:b.epoch,conversation:'Y'});assert.equal(switched.epoch,2);
     await assert.rejects(()=>invoke('send_message',{participant_id:b.id,epoch:1,text:'stale',request_key:randomUUID()}),/Assignment/);

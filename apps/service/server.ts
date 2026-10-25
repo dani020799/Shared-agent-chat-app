@@ -41,7 +41,7 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
           json(res,{room,members:store.members(id).map(p=>({...p,online:listeners.has(p.id),activity:store.one("SELECT id FROM invocations WHERE participant_id=? AND status='notified'",p.id) ? 'awaiting agent completion' : 'unknown'})),...store.history(id,Number(url.searchParams.get('after') ?? 0)),invocations:store.jobs(id)}); return;
         }
         if (path === '/admin/messages' && req.method === 'POST') {
-          const b = await body(req); json(res,store.send(b.room_id,{id:'human',name:'You'},b.text,b.recipients ?? [],b.all === true,b.request_key)); notify(); return;
+          const b = await body(req); json(res,store.send(b.room_id,{id:'human',name:'You'},b.text,b.recipients ?? [],b.all === true,b.request_key,undefined,b.reply_to)); notify(); return;
         }
         if (path === '/admin/pause' && req.method === 'POST') {
           const b = await body(req); store.room(b.room_id); store.run('UPDATE rooms SET paused=? WHERE id=?',b.paused ? 1 : 0,b.room_id); json(res,{ok:true}); notify(); return;
@@ -65,7 +65,7 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
         case '/join': result = store.assign(p.id,b.conversation,false,b.epoch); break;
         case '/adapter': {
           if(p.epoch!==b.epoch)throw new HubError('Assignment changed',409);
-          if(!['manual','wait','codex-queue','claude-channel','claude-bridge'].includes(b.adapter))throw new HubError('Unknown adapter');
+          if(!['manual','wait','codex-queue','agy-native','grok-monitor','claude-channel','claude-bridge'].includes(b.adapter))throw new HubError('Unknown adapter');
           store.run('UPDATE participants SET adapter=? WHERE id=?',b.adapter,p.id);
           result=store.participant(p.id);break;
         }
@@ -74,7 +74,7 @@ export function createHub(store: Store, secrets: {adminToken:string; agentToken:
         case '/members': result = store.members(store.active(p.id,b.epoch).room_id); break;
         case '/send': {
           const active = store.active(p.id,b.epoch);
-          result = store.send(active.room_id,active as {id:string;name:string},b.text,b.recipients ?? [],b.all === true,b.request_key,b.epoch); break;
+          result = store.send(active.room_id,active as {id:string;name:string},b.text,b.recipients ?? [],b.all === true,b.request_key,b.epoch,b.reply_to); break;
         }
         case '/unread': result = store.unread(p.id,b.epoch,b.through); break;
         case '/history': result = store.history(store.active(p.id,b.epoch).room_id,b.after ?? 0,b.through); break;

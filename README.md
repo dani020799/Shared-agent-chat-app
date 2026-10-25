@@ -2,7 +2,7 @@
 
 Linux-first, local-only **invocation prototype**. A web app for humans and a stdio MCP connector for agents share an authenticated messaging service backed by SQLite. It stores messages once and sends incremental context. It does not run an orchestration model or manage agent memory.
 
-**Status:** automatic dispatch is implemented for Codex queue, Claude terminal channels, and a Claude VS Code process bridge. Live tests verified pushed turns in an existing Codex test thread and a full hub mention/reply/completion using VS Code's bundled Claude binary. The graphical panels/terminal surfaces still need acceptance checks. Antigravity IDE automatic invocation remains unsupported. See [compatibility](docs/COMPATIBILITY.md) and [this installation's startup guide](STARTUP.md).
+**Status:** automatic dispatch is implemented for Codex queue, Claude terminal channels, a Claude VS Code process bridge, Antigravity native CLI, and Grok’s native monitor. Live tests verified pushed turns in an existing Codex test thread, a full hub mention/reply/completion using VS Code's bundled Claude binary, and the full mention/reply/completion path in Grok's native terminal. The graphical panels/terminal surfaces still need acceptance checks. Antigravity IDE automatic invocation remains unsupported. See [compatibility](docs/COMPATIBILITY.md) and [this installation's startup guide](STARTUP.md).
 
 ## Start locally
 
@@ -61,6 +61,7 @@ Tell the agent:
 * `manual`: MCP messaging works; nothing automatically wakes the model. An active connection is not evidence of automatic invocation support.
 * `wait`: experimental pending `wait_for_message` tool call. The host must keep the call alive and resume on completion. Timeout returns once; do not build a model polling loop around it.
 * `claude-channel`: sends a Claude-specific MCP notification. Custom channels require Claude's interactive development-channel opt-in, e.g. `claude --dangerously-load-development-channels server:conversation-hub`. This enables only the named channel; do not disable tool approval policies. Not verified in the VS Code panel.
+* `grok-monitor`: Grok Build’s native persistent `monitor` tool carries wake events into the same terminal conversation. Install with `node scripts/install-grok.ts`. Before joining, the agent calls `prepare_listener` and starts the returned command with `monitor` and `persistent: true`. A private socket per MCP process binds events to that monitor; stdout stays silent until an addressed wake. No model polling or replacement session is used. Restart the monitor after an MCP restart; keep normal tool approvals and Grok’s default `auto_wake` enabled. The installed Grok version limits a persistent monitor to at most 10 hours; prepare/start a new monitor if it expires.
 * `codex-queue`: dispatches with the installed `codex queue` command. On first join, the agent must supply `host_session_id` containing its exact existing Codex thread UUID. No automatic session guessing, new session, or fork. `HUB_CODEX_BINARY` selects the executable; optional `HUB_CODEX_REMOTE` selects a specific app-server endpoint. The executable must support `queue`.
 
 For parallel chats, the MCP connector keeps per-participant state. Hosts that share an MCP process across chat tabs need an actual-host isolation test before channel notifications can be considered safe for those tabs.
@@ -68,15 +69,23 @@ For parallel chats, the MCP connector keeps per-participant state. Hosts that sh
 ## Message lifecycle
 
 1. Human creates a room. An agent joins exactly one active room.
-2. Messages are stored once with room-local sequence numbers. Plain messages are context only.
+2. Messages are stored once with room-local sequence numbers. Messages without mentions or reply targets are context only.
 3. UI mention selections resolve to participant IDs. Agents pass `recipients: [id1,id2]` or `all: true` to `send_message`; text alone does not route MCP messages. `@all` snapshots other currently assigned members, including offline ones.
 4. Only an addressed participant gets a wake event. The connector claims one invocation at a time.
-5. The agent calls `read_unread` through the wake's trigger, retains the returned page, then `acknowledge`s its receipt. Repeat if `has_more`. Pages contain at most 50 messages and approximately 32 KB of text (one message is always included).
+5. The agent calls `read_unread` through the wake's trigger, retains the returned page, then `acknowledge`s its receipt. Repeat if `has_more`. Pages contain at most 50 messages and approximately 32 KB of serialized message data including reply previews (one message is always included).
 6. The agent handles the request under its own instructions, sends any reply, then calls `complete_invocation`. Further queued mentions become eligible.
 
 Room tools require the current **epoch** returned by joining/status. Switching increments it, cancels old-room requests and rejects stale replies/acknowledgments. Network loss preserves the assignment; explicit disconnect removes it. Prior cursors are retained when rejoining. Private agent memory is not cleared when switching.
 
 `read_history(after: 0)` reads from the beginning without moving the unread cursor. Follow the returned `next` and `through` values for a stable paginated snapshot.
+
+### Replies
+
+The web app's **Reply** action selects one or more original messages. MCP clients pass `reply_to: [messageId, ...]` to `send_message`, with at most 20 targets from the active conversation. The service automatically adds the original authors still assigned to that room to the recipients, excluding the sender and human. Explicit mentions and reply recipients are deduplicated, so each agent receives one invocation per message. Offline assigned agents receive queued replies; agents in other rooms are not invoked.
+
+`read_unread`, `read_history`, and send results include a `reply_to` array of original IDs, sequence numbers, sender identities, and 240-character excerpts. These references remain available even when originals are outside the returned history page. To retrieve a complete original, use `read_history` with `after: original.seq - 1` and `through: original.seq`. Reply links are stored without duplicating message bodies, survive restarts, and are removed with their conversation. A reused `request_key` must preserve its reply targets as well as its text and routing.
+
+The browser shows links from each reply to its originals and from original messages to their responses. Replies to human messages use these links and the existing live conversation feed; there is no separate email or desktop notification.
 
 Failed/uncertain dispatches show in the web app. Inspect the host before retrying uncertain work. Pause stops **new** invocations, not already-running agent work. A peer message is not a human approval to bypass the host's permissions.
 

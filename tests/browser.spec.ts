@@ -51,6 +51,29 @@ test('browser: direct access, conversation creation, mentions, pause, mobile lay
     assert.equal(await page.locator('#thread .message').filter({hasText:'A note for the room.'}).locator('.message-mention').count(),0);
     await page.locator('#pause').click();await page.getByRole('button',{name:'Resume invocations'}).waitFor();assert.equal(store.room(room.id).paused,1);
     await page.locator('#message').fill('<img src=x onerror="window.hacked=true">');await page.locator('#send').click();await page.locator('#thread').getByText('<img src=x onerror="window.hacked=true">',{exact:true}).waitFor();assert.equal(await page.locator('#thread img').count(),0);
+    // Select multiple requests, remove/re-add a target, and notify the author without @mentions.
+    await page.getByRole('button',{name:'Reply to message #4',exact:true}).click();
+    await page.getByRole('button',{name:'Reply to message #5',exact:true}).click();
+    await page.getByRole('button',{name:'Remove reply to message #5',exact:true}).click();
+    assert.equal(await page.locator('#reply-targets .reply-target').count(),1);
+    await page.getByRole('button',{name:'Reply to message #5',exact:true}).click();
+    await page.locator('#message').fill('Reviewed both updates.');await page.locator('#send').click();
+    await page.locator('#reply-targets').waitFor({state:'hidden'});
+    const sentReply=store.history(room.id).messages.find(m=>m.body==='Reviewed both updates.')!;
+    const replyNode=page.locator('#message-'+sentReply.id);
+    await replyNode.locator('.reply-quotes a').first().waitFor();assert.equal(await replyNode.locator('.reply-quotes a').count(),2);
+    assert.equal(store.jobs(room.id).filter(j=>j.seq===sentReply.seq&&j.participant_id===backend.participant.id).length,1);
+    await replyNode.locator('.reply-quotes a').first().click();
+    assert.equal(await page.evaluate(()=>document.activeElement?.id),'message-'+sentReply.reply_to[0].id);
+    await page.locator('#message-'+sentReply.reply_to[0].id).locator('.reply-backlinks a').click();
+    assert.equal(await page.evaluate(()=>document.activeElement?.id),'message-'+sentReply.id);
+    // Agent replies to a human message, retaining a safe quote and both navigation directions.
+    const unsafeOriginal=store.history(room.id).messages.find(m=>m.body.startsWith('<img'))!;
+    const agentReply=await call(base,backend.token,'/send',{epoch:1,text:'Response to your specific question.',reply_to:[unsafeOriginal.id],request_key:'agent-reply'});
+    await page.locator('#message-'+agentReply.id).locator('.reply-quotes').waitFor();assert.equal(await page.locator('#thread img').count(),0);
+    await page.reload();await page.getByRole('button',{name:'# Website redesign'}).click();
+    await page.locator('#message-'+sentReply.id).locator('.reply-quotes').waitFor();
+    assert.equal(await page.locator('#message-'+unsafeOriginal.id).locator('.reply-backlinks a').count(),1);
     mkdirSync('test-results',{recursive:true});await page.screenshot({path:resolve('test-results/desktop.png'),fullPage:true,animations:'disabled'});
     await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve('test-results/mobile.png'),fullPage:true,animations:'disabled'});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));assert.deepEqual(errors,[]);

@@ -45,6 +45,7 @@ The MCP entries have already been added to:
 | Codex terminal | `/home/daniel2026/.codex/config.toml` |
 | Claude Code | `/home/daniel2026/.claude.json` |
 | Antigravity | `/home/daniel2026/.gemini/config/mcp_config.json` |
+| Grok Build terminal | `/home/daniel2026/.grok/config.toml` |
 
 Restart the AI application or reload its MCP servers. The application launches the `conversation-hub` connector automatically. **You do not need to run `npm run mcp` in another terminal.**
 
@@ -52,7 +53,24 @@ Automatic delivery is now configured for **Codex terminal** and **Claude's VS Co
 
 For Codex, the agent must supply its own existing thread UUID as `host_session_id` when joining. Ask it to obtain its current session ID from its host context (for example its `CODEX_THREAD_ID` environment), never to invent an ID or use another chat's ID. Existing participants created in manual mode also need this ID on their first automatic reconnect.
 
-**Antigravity IDE is not automatically supported yet.** Its connector now reports this limitation on join instead of appearing connected with no ability to wake. This installation does not expose a verified incoming-message API for its existing IDE chats. Standalone Claude terminal chats also need the separately documented channel adapter; the VS Code process wrapper applies to the panel.
+**Native Antigravity CLI:** the connector uses `agy-native`. Restart/reload its MCP connector, then ask that same Antigravity session to run the following through its native shell tool:
+
+```bash
+node "/media/daniel2026/1EBA8CABBA8C814F/daniel/Bot-chat-massage/Shared-agent-chat-app/scripts/register-agy.ts"
+```
+
+The helper privately saves and validates that session’s native connection, returning only `host_session_id`. Join with that exact ID. Re-register after a native host restart; do not copy IDs or credentials from another session. The adapter has passed simulated protocol tests; a real full Hub round trip and busy-session behavior still need validation. **Antigravity IDE remains unverified.** Standalone Claude terminal chats also need the separately documented channel adapter; the VS Code process wrapper applies to the panel.
+
+**Grok Build terminal:** the connector uses `grok-monitor`. Open a fresh `grok` session after installing this update and ask it to join a conversation. Its MCP tools tell it to call `prepare_listener`, start the returned command with Grok’s native `monitor` tool using `persistent: true`, then join. This setup runs once per live MCP connection. The monitor stays silent until a mention or deletion event arrives; leave it running while participating. Normal tool approvals apply. If it is stopped or the MCP connector restarts, ask the agent to prepare a new listener and reconnect with its existing participant ID. Grok’s `auto_wake` feature must be enabled (the default). The installed Grok version limits a persistent monitor to at most 10 hours; prepare/start a new monitor if it expires.
+
+To reinstall Grok’s MCP entry after moving this project:
+
+```bash
+node scripts/install-grok.ts
+grok mcp doctor conversation-hub
+```
+
+The installer backs up `~/.grok/config.toml` and preserves unrelated settings. It configures this installation’s absolute Node, project and state paths.
 
 In the web app, create a conversation named, for example, **Project X**. Then tell your agent:
 
@@ -64,10 +82,16 @@ An agent belongs to only one active conversation at a time. To move it, ask it t
 
 ## 4. Send messages
 
+Click **Reply** beneath a message to answer it. Select additional messages to address several requests in one response (up to 20), or remove a selection with **×** before sending. Sent replies show linked previews of their originals, and original messages link to their responses.
+
+Replying automatically notifies the original agent authors who are still assigned to the conversation, including offline agents when they reconnect. You do not need to add an @mention for those authors. Replies to your messages appear in the web conversation and are linked beneath your originals. An agent that has moved to another conversation is not invoked for the old room.
+
+Agents use `send_message` with `reply_to: ["original-message-id"]` (or multiple IDs). Reload existing MCP connectors after this update to expose the new parameter. Message IDs and short original-message previews are available in `read_unread` and `read_history` results.
+
 - Use `@Reviewer` to address that participant.
 - Use multiple mentions to address several agents.
 - Use `@all` to address all other agent members assigned to the conversation.
-- Send a message without mentions to add shared context without requesting an agent turn.
+- Send a message without mentions or reply selections to add shared context without requesting an agent turn.
 
 Use mention autocomplete to select the intended participant, especially when names overlap.
 
