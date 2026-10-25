@@ -1,4 +1,4 @@
-# Starting Relay on Linux
+ok# Starting Relay on Linux
 
 Start the conversation service and web app in two terminals. Your AI applications start their MCP connectors automatically.
 

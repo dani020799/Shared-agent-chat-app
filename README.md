@@ -45,6 +45,8 @@ Add a local stdio MCP entry using absolute paths. The host starts the connector 
 }
 ```
 
+For the exact config file, format, and adapter for each supported agent (Codex, Claude, Antigravity, Grok), see [per-agent MCP setup](docs/MCP-SETUP.md).
+
 Use a distinct `HUB_STATE_DIR` for each host chat to isolate reconnect credentials. Do not configure separate hosts to share another chat's state directory. The connector persists credentials with private permissions and never returns tokens in MCP results. Remember the returned participant ID in the host conversation; after a connector restart, pass it to `join_conversation` to reconnect. A new call without participant ID creates a new participant.
 
 For remote machines, install this project and Node there, set `HUB_URL` to the private server address, and provide **only** `HUB_AGENT_TOKEN` (the enrollment token) plus a private `HUB_STATE_DIR`. Do not copy `adminToken` to agents. Use an encrypted private network such as an existing VPN; public internet deployment is not configured. Bind the backend explicitly with `HUB_BIND` if necessary. Keep the web app localhost-only or use an SSH tunnel. A TLS reverse proxy must set `HUB_WEB_ORIGIN` to the exact HTTPS origin.
